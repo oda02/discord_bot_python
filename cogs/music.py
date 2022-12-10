@@ -9,7 +9,8 @@ from async_timeout import timeout
 from functools import partial
 from youtube_dl import YoutubeDL
 from modules.YT_search import YoutubeSearch
-
+from urllib.parse import urlparse
+from urllib.parse import parse_qs
 
 # ytdlopts = {
 #     'format': 'bestaudio/best',
@@ -127,10 +128,10 @@ class YTDLSource():
                     'title': chosen_song['title'], 'time': 0}
 
         else:
-
-            if (time_index := search.find("?t=")) != -1:
-                timestamp = search[time_index + 3:]
-            else:
+            parsed_url = urlparse(search)
+            try:
+                timestamp = parse_qs(parsed_url.query)['t'][0]
+            except KeyError:
                 timestamp = 0
             to_run = partial(ytdl.extract_info, url=search, download=download)
             data = await loop.run_in_executor(None, to_run)
@@ -196,7 +197,7 @@ class MusicPlayer:
 
             try:
                 # Wait for the next song. If we timeout cancel the player and disconnect...
-                async with timeout(300):  # 5 minutes...
+                async with timeout(360):  # 5 minutes...
                     source = await self.queue.get()
             except asyncio.TimeoutError:
                 return self.destroy(self._guild)
@@ -254,6 +255,18 @@ class Music(commands.Cog):
         except KeyError:
             pass
 
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member, before, after):
+        # print(member, before, after)
+        if after.channel is None:
+            try:
+                player = self.players[member.guild.id]
+                del player
+                del self.players[member.guild.id]
+            except KeyError:
+                pass
+            await self.cleanup(member.guild)
+
     async def __local_check(self, ctx):
         """A local check which applies to all commands in this cog."""
         if not ctx.guild:
@@ -301,8 +314,13 @@ class Music(commands.Cog):
                 raise InvalidVoiceChannel('No channel to join. Please either specify a valid channel or join one.')
 
         vc = ctx.voice_client
+        # print('я определнно здесь')
+
 
         if vc:
+            if not vc.is_connected():
+                await vc.connect(reconnect=True, timeout=5)
+                return
             if vc.channel.id == channel.id:
                 return
             try:
@@ -332,7 +350,11 @@ class Music(commands.Cog):
         vc = ctx.voice_client
 
         if not vc:
+            # print('not vc')
             await ctx.invoke(self.connect_)
+        else:
+            if not vc.is_connected():
+                await ctx.invoke(self.connect_)
 
         player = self.get_player(ctx)
 
