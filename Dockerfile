@@ -8,4 +8,4 @@ RUN pip install -r requirements.txt
 COPY . /code/
 RUN apt update
 RUN apt install ffmpeg -y
-RUN python main.py
+CMD ["python", "main.py"]
